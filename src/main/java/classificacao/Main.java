@@ -1,10 +1,5 @@
 package classificacao;
 
-import leitura.Documento;
-import leitura.Leitor;
-import org.ufla.spark.rec_inf_tp2.funcoes.FunParaTuple2;
-import org.ufla.spark.rec_inf_tp2.utils.DatasetUtils;
-
 import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
@@ -19,6 +14,7 @@ import org.apache.spark.ml.feature.HashingTF;
 import org.apache.spark.ml.feature.IDF;
 import org.apache.spark.ml.feature.StringIndexer;
 import org.apache.spark.ml.feature.Tokenizer;
+import org.apache.spark.ml.feature.Word2Vec;
 import org.apache.spark.ml.param.ParamMap;
 import org.apache.spark.ml.tuning.CrossValidator;
 import org.apache.spark.ml.tuning.CrossValidatorModel;
@@ -29,12 +25,12 @@ import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoders;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
-import org.apache.spark.sql.Dataset;
+import org.ufla.spark.rec_inf_tp2.funcoes.FunParaTuple2;
+import org.ufla.spark.rec_inf_tp2.utils.DatasetUtils;
 
+import leitura.Documento;
+import leitura.Leitor;
 import scala.Tuple2;
-
-
-
 
 /**
  * Classe principal.
@@ -75,22 +71,29 @@ public class Main {
 				  .setInputCol("Phrase")
 				  .setOutputCol("words");
 		
+		//CountVectorizerModel cvm = new CountVectorizerModel(new String[] {tokenizer.getOutputCol()})
+		//		  .setInputCol("words")
+		//		  .setOutputCol("col_vec");
+		
+		Word2Vec word2Vec = new Word2Vec()
+				  .setInputCol(tokenizer.getOutputCol())
+				  .setOutputCol("col_words")
+				  .setVectorSize(100);
 		
 		HashingTF hashingTF = new HashingTF()
 				  .setInputCol(tokenizer.getOutputCol())
-				  .setOutputCol("features");
+				  .setOutputCol("col_htf");
 		
 		IDF idf = new IDF()
 				.setInputCol(hashingTF.getOutputCol())
-				.setOutputCol("features_col");
+				.setOutputCol("features");
 				
 		NaiveBayes nb = new NaiveBayes()
 				.setSmoothing(1.0)
 				.setModelType("multinomial");
 		
 		Pipeline pipeline = new Pipeline()
-				  .setStages(new PipelineStage[] {categoryIndexer,tokenizer, hashingTF, idf, nb});
-		
+				  .setStages(new PipelineStage[] {categoryIndexer, tokenizer, word2Vec, hashingTF, idf, nb});
 		
 		MulticlassClassificationEvaluator evaluator = new MulticlassClassificationEvaluator()
 				.setLabelCol("label")
@@ -98,8 +101,8 @@ public class Main {
 		
 		ParamMap[] paramGrid = new ParamGridBuilder()
 				  .addGrid(hashingTF.numFeatures(), new int[] {1000, 10000, 100000})
+				  //.addGrid(word2Vec.vectorSize(), new int[] {100,1000})
 				  .build();
-		
 				
 		String nomeDoModelo = "modeloCV_00";
 		
@@ -117,6 +120,7 @@ public class Main {
 			if (diretorioPredicoes.exists()) {
 				diretorioPredicoes.delete();
 			}
+									
 			CrossValidator cv = new CrossValidator().setEstimator(pipeline)
 					.setEstimatorParamMaps(paramGrid)
 					.setEvaluator(evaluator)
