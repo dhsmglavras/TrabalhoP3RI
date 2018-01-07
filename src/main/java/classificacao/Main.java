@@ -10,6 +10,7 @@ import org.apache.spark.ml.Pipeline;
 import org.apache.spark.ml.PipelineStage;
 import org.apache.spark.ml.classification.NaiveBayes;
 import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator;
+import org.apache.spark.ml.feature.CountVectorizerModel;
 import org.apache.spark.ml.feature.HashingTF;
 import org.apache.spark.ml.feature.IDF;
 import org.apache.spark.ml.feature.StringIndexer;
@@ -26,6 +27,11 @@ import org.apache.spark.sql.Encoders;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.ufla.spark.rec_inf_tp2.funcoes.FunParaTuple2;
+import org.ufla.spark.rec_inf_tp2.transformacoes.TransformacaoCodificacaoASCIIDesnec;
+import org.ufla.spark.rec_inf_tp2.transformacoes.TransformacaoGenerica;
+import org.ufla.spark.rec_inf_tp2.transformacoes.TransformacaoMinuscula;
+import org.ufla.spark.rec_inf_tp2.transformacoes.TransformacaoRemoverTags;
+import org.ufla.spark.rec_inf_tp2.transformacoes.TransformacaoStemmer;
 import org.ufla.spark.rec_inf_tp2.utils.DatasetUtils;
 
 import leitura.Documento;
@@ -40,7 +46,7 @@ import scala.Tuple2;
  */
 public class Main {
 
-	public static void main(String[] args) throws IOException {
+	public static void main(String[] args) throws IOException, InstantiationException, IllegalAccessException {
 		
 		Logger.getLogger("org").setLevel(Level.ERROR);
 		Logger.getLogger("akka").setLevel(Level.ERROR);
@@ -55,10 +61,45 @@ public class Main {
 				.getOrCreate();
 		
 		// Teste para leitura do dataset
-		Dataset<Documento> dados = Leitor.lerDeDoc("data/train.tsv");
+		Dataset<Documento> dataInput = Leitor.lerDeDoc("data/train.tsv");
+		Dataset<Row> dataOutput = dataInput.toDF();
 		
+		TransformacaoGenerica teste = TransformacaoMinuscula.class.newInstance().criarTransformacao()
+				.setColunaEntrada("Phrase")
+				.setColunaSaida("coluna_min")
+				.setEsquemaEntrada(dataOutput.schema());
+				
+		dataOutput = Leitor.class.newInstance().aplicarPreProcessamento(dataOutput, teste);
 		
-		Dataset<Documento>[] splits = dados.randomSplit(new double[]{0.9, 0.1}, 1234L);
+		teste = TransformacaoRemoverTags.class.newInstance().criarTransformacao()
+				.setColunaEntrada(teste.getColunaSaida())
+				.setColunaSaida("coluna_sem_tags")
+				.setEsquemaEntrada(dataOutput.schema());
+				
+		dataOutput = Leitor.class.newInstance().aplicarPreProcessamento(dataOutput, teste);
+		
+		teste = TransformacaoCodificacaoASCIIDesnec.class.newInstance().criarTransformacao()
+				.setColunaEntrada(teste.getColunaSaida())
+				.setColunaSaida("coluna_sem_cod_asc_desnec")
+				.setEsquemaEntrada(dataOutput.schema());
+				
+		dataOutput = Leitor.class.newInstance().aplicarPreProcessamento(dataOutput, teste);
+		
+		teste = TransformacaoCodificacaoASCIIDesnec.class.newInstance().criarTransformacao()
+				.setColunaEntrada(teste.getColunaSaida())
+				.setColunaSaida("coluna_sem_stop")
+				.setEsquemaEntrada(dataOutput.schema());
+				
+		dataOutput = Leitor.class.newInstance().aplicarPreProcessamento(dataOutput, teste);
+		
+		teste = TransformacaoStemmer.class.newInstance().criarTransformacao()
+				.setColunaEntrada(teste.getColunaSaida())
+				.setColunaSaida("coluna_stemmer")
+				.setEsquemaEntrada(dataOutput.schema());
+				
+		dataOutput = Leitor.class.newInstance().aplicarPreProcessamento(dataOutput, teste);
+				
+		Dataset<Row>[] splits = dataOutput.randomSplit(new double[]{0.8, 0.2}, 1234L);
 		Dataset<Row> training = splits[0].toDF();
 		Dataset<Row> test = splits[1].toDF();
 
@@ -68,17 +109,18 @@ public class Main {
 			      .setOutputCol("label");
 					
 		Tokenizer tokenizer = new Tokenizer()
-				  .setInputCol("Phrase")
+				  .setInputCol("coluna_sem_cod_asc_desnec")
 				  .setOutputCol("words");
 		
-		//CountVectorizerModel cvm = new CountVectorizerModel(new String[] {tokenizer.getOutputCol()})
-		//		  .setInputCol("words")
-		//		  .setOutputCol("col_vec");
+		CountVectorizerModel cvm = new CountVectorizerModel(new String[] {tokenizer.getOutputCol()})
+				  .setInputCol("words")
+				  .setOutputCol("col_vec");
 		
 		Word2Vec word2Vec = new Word2Vec()
 				  .setInputCol(tokenizer.getOutputCol())
 				  .setOutputCol("col_words")
-				  .setVectorSize(100);
+				  .setVectorSize(3)
+				  .setMinCount(0);
 		
 		HashingTF hashingTF = new HashingTF()
 				  .setInputCol(tokenizer.getOutputCol())
@@ -93,7 +135,7 @@ public class Main {
 				.setModelType("multinomial");
 		
 		Pipeline pipeline = new Pipeline()
-				  .setStages(new PipelineStage[] {categoryIndexer, tokenizer, word2Vec, hashingTF, idf, nb});
+				  .setStages(new PipelineStage[] {categoryIndexer, tokenizer,  word2Vec, cvm, hashingTF, idf, nb});
 		
 		MulticlassClassificationEvaluator evaluator = new MulticlassClassificationEvaluator()
 				.setLabelCol("label")
