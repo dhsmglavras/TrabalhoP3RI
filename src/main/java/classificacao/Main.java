@@ -99,51 +99,35 @@ public class Main {
 				
 		dataOutput = Leitor.class.newInstance().aplicarPreProcessamento(dataOutput, teste);
 				
-		Dataset<Row>[] splits = dataOutput.randomSplit(new double[]{0.8, 0.2}, 1234L);
+		Dataset<Row>[] splits = dataOutput.randomSplit(new double[]{0.9, 0.1}, 1234L);
 		Dataset<Row> training = splits[0].toDF();
 		Dataset<Row> test = splits[1].toDF();
-
 		
 		StringIndexer categoryIndexer = new StringIndexer()
 			      .setInputCol("Sentiment")
 			      .setOutputCol("label");
 					
 		Tokenizer tokenizer = new Tokenizer()
-				  .setInputCol("coluna_sem_cod_asc_desnec")
+				  .setInputCol(teste.getColunaSaida())
 				  .setOutputCol("words");
-		
-		CountVectorizerModel cvm = new CountVectorizerModel(new String[] {tokenizer.getOutputCol()})
-				  .setInputCol("words")
-				  .setOutputCol("col_vec");
-		
-		Word2Vec word2Vec = new Word2Vec()
-				  .setInputCol(tokenizer.getOutputCol())
-				  .setOutputCol("col_words")
-				  .setVectorSize(3)
-				  .setMinCount(0);
-		
+				
 		HashingTF hashingTF = new HashingTF()
 				  .setInputCol(tokenizer.getOutputCol())
-				  .setOutputCol("col_htf");
-		
-		IDF idf = new IDF()
-				.setInputCol(hashingTF.getOutputCol())
-				.setOutputCol("features");
+				  .setOutputCol("features");
 				
 		NaiveBayes nb = new NaiveBayes()
 				.setSmoothing(1.0)
 				.setModelType("multinomial");
 		
 		Pipeline pipeline = new Pipeline()
-				  .setStages(new PipelineStage[] {categoryIndexer, tokenizer,  word2Vec, cvm, hashingTF, idf, nb});
+				  .setStages(new PipelineStage[] {categoryIndexer, tokenizer, hashingTF, nb});
 		
 		MulticlassClassificationEvaluator evaluator = new MulticlassClassificationEvaluator()
 				.setLabelCol("label")
 				.setPredictionCol("prediction");
-		
+						
 		ParamMap[] paramGrid = new ParamGridBuilder()
-				  .addGrid(hashingTF.numFeatures(), new int[] {1000, 10000, 100000})
-				  //.addGrid(word2Vec.vectorSize(), new int[] {100,1000})
+				  .addGrid(hashingTF.numFeatures(), new int[] {11000,12200,13200,13500,13600,13700,14700,15000,18000,18300})
 				  .build();
 				
 		String nomeDoModelo = "modeloCV_00";
@@ -166,7 +150,7 @@ public class Main {
 			CrossValidator cv = new CrossValidator().setEstimator(pipeline)
 					.setEstimatorParamMaps(paramGrid)
 					.setEvaluator(evaluator)
-					.setNumFolds(10);
+					.setNumFolds(3);
 			
 			cvModel = cv.fit(training);
 			cvModel.write().save(nomeDoModelo);
